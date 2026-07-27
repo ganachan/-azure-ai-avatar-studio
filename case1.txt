@@ -1,0 +1,19 @@
+Support Agent: Hello, this is Mark from Dragon Solutions calling about case number TF-2024-2109. We've been experiencing critical issues with our email system for the past 4 days.
+
+Customer: Hi Mark, I'm Jennifer Walsh, the IT Director here. Our entire organization of 60 employees is unable to send or receive emails properly. We're getting constant timeout errors in Outlook, and the web-based email is also intermittent.
+
+Support Agent: I'm sorry to hear about these widespread email issues. Can you tell me more about when this started and any recent changes to your system?
+
+Customer: It began last Tuesday morning around 8 AM, right after we installed the latest Windows security updates over the weekend. Initially, we thought it might be a server restart issue, but it's gotten progressively worse. Our Exchange server logs show MAPI connection failures, and we're seeing authentication timeouts every few minutes.
+
+Support Agent: That timing with the Windows updates is very telling. Have you tried any troubleshooting steps already?
+
+Customer: Yes, we've restarted the Exchange services multiple times, cleared the client-side Outlook profiles, and even rebooted the mail server twice. Nothing has resolved the issue. Our CEO is extremely concerned because we have several client proposals due this week, and we can't communicate reliably with our customers.
+
+Support Agent: I understand the urgency, especially with the business impact you're describing. The combination of Windows updates and MAPI connection failures suggests this might be related to recent security patches affecting email protocols. Let me escalate this to our senior technical team immediately.
+
+Customer: Please do. We really need this resolved today if possible. We've already lost two days of productive email communication, and our clients are starting to notice the delays in our responses.
+
+Support Agent: Absolutely. I'm marking this as a critical priority case given the scope of users affected and the business impact. Our technical team will contact you within the next 30 minutes with a resolution plan.
+
+Customer: Thank you so much. My direct number is 555-0198 if you need to reach me immediately. I'll be standing by for your team's call.

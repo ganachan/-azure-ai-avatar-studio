@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  streamlit-app:
+    build: .
+    ports:
+      - "8501:8501"
+    environment:
+      # Azure Speech Service
+      - SPEECH_ENDPOINT=${SPEECH_ENDPOINT}
+      - SPEECH_SUBSCRIPTION_KEY=${SPEECH_SUBSCRIPTION_KEY}
+      - API_VERSION=${API_VERSION}
+      
+      # Avatar Background Images
+      - BACKGROUND_IMAGE_Binaka_URL=${BACKGROUND_IMAGE_Binaka_URL}
+      - BACKGROUND_IMAGE_sri_URL=${BACKGROUND_IMAGE_sri_URL}
+      - BACKGROUND_IMAGE_mike_URL=${BACKGROUND_IMAGE_mike_URL}
+      
+      # Azure OpenAI
+      - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT}
+      - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY}
+      - AZURE_OPENAI_DEPLOYMENT_NAME=${AZURE_OPENAI_DEPLOYMENT_NAME}
+      
+      # Azure Cosmos DB
+      - AZCOSMOS_CONNSTR=${AZCOSMOS_CONNSTR}
+      - AZCOSMOS_DATABASE_NAME_Batch=${AZCOSMOS_DATABASE_NAME_Batch}
+      - AZCOSMOS_CONTAINER_NAME_batch=${AZCOSMOS_CONTAINER_NAME_batch}
+    env_file:
+      - .env
+    volumes:
+      - ./logs:/app/logs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3

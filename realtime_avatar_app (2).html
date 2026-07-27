@@ -1,0 +1,945 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Avatar - Industry Solutions</title>
+    <!-- Try multiple SDK sources with fallbacks -->
+    <script>
+        // Multiple CDN sources for Speech SDK
+        const SDK_SOURCES = [
+            'https://aka.ms/SpeechSDK/speechsdk-js-1.34.0.js',
+            'https://cdn.jsdelivr.net/npm/microsoft-cognitiveservices-speech-sdk@1.34.0/distrib/browser/microsoft.cognitiveservices.speech.sdk.bundle.js',
+            'https://unpkg.com/microsoft-cognitiveservices-speech-sdk@1.34.0/distrib/browser/microsoft.cognitiveservices.speech.sdk.bundle.js'
+        ];
+        
+        let currentSDKIndex = 0;
+        
+        function loadSpeechSDK() {
+            return new Promise((resolve, reject) => {
+                function tryLoadSDK(index) {
+                    if (index >= SDK_SOURCES.length) {
+                        reject(new Error('All SDK sources failed to load'));
+                        return;
+                    }
+                    
+                    const script = document.createElement('script');
+                    script.src = SDK_SOURCES[index];
+                    script.onload = () => {
+                        console.log(`SDK loaded from source ${index + 1}`);
+                        resolve();
+                    };
+                    script.onerror = () => {
+                        console.warn(`SDK source ${index + 1} failed, trying next...`);
+                        tryLoadSDK(index + 1);
+                    };
+                    document.head.appendChild(script);
+                }
+                
+                tryLoadSDK(0);
+            });
+        }
+        
+        // Wait for Speech SDK to load
+        function waitForSpeechSDK() {
+            return new Promise(async (resolve, reject) => {
+                // Check if already loaded
+                if (typeof SpeechSDK !== 'undefined') {
+                    resolve();
+                    return;
+                }
+                
+                try {
+                    await loadSpeechSDK();
+                    
+                    // Wait for SDK to be available
+                    let attempts = 0;
+                    const maxAttempts = 100;
+                    
+                    const checkSDK = setInterval(() => {
+                        attempts++;
+                        if (typeof SpeechSDK !== 'undefined') {
+                            clearInterval(checkSDK);
+                            console.log('Speech SDK successfully loaded');
+                            resolve();
+                        } else if (attempts >= maxAttempts) {
+                            clearInterval(checkSDK);
+                            reject(new Error('Speech SDK failed to load after all attempts'));
+                        }
+                    }, 100);
+                } catch (error) {
+                    reject(error);
+                }
+            });
+        }
+    </script>
+    <style>
+        :root {
+            --primary-blue: #0078D4;
+            --secondary-blue: #106EBE;
+            --success-green: #107C10;
+            --warning-orange: #FF8C00;
+            --light-blue: #E1F5FE;
+            --gray-100: #F3F2F1;
+            --gray-200: #E1DFDD;
+            --gray-600: #605E5C;
+            --white: #FFFFFF;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, var(--light-blue) 0%, var(--gray-100) 100%);
+            min-height: 100vh;
+            color: #323130;
+        }
+
+        .header {
+            background: linear-gradient(90deg, var(--primary-blue) 0%, var(--secondary-blue) 100%);
+            color: white;
+            padding: 20px 0;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .header-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            font-size: 24px;
+            font-weight: 600;
+        }
+
+        .subtitle {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            display: grid;
+            grid-template-columns: 350px 1fr;
+            gap: 20px;
+            min-height: calc(100vh - 80px);
+        }
+
+        .sidebar {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            height: fit-content;
+        }
+
+        .main-content {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .section {
+            margin-bottom: 24px;
+        }
+
+        .section h3 {
+            color: var(--primary-blue);
+            margin-bottom: 12px;
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 6px;
+            font-weight: 500;
+            color: var(--gray-600);
+        }
+
+        input, select {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid #D1D1D1;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: border-color 0.2s;
+        }
+
+        input:focus, select:focus {
+            outline: none;
+            border-color: var(--primary-blue);
+        }
+
+        .industry-card {
+            padding: 12px;
+            border: 2px solid #E1DFDD;
+            border-radius: 8px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .industry-card:hover {
+            border-color: var(--primary-blue);
+            background-color: #F3F9FF;
+        }
+
+        .industry-card.selected {
+            border-color: var(--primary-blue);
+            background-color: var(--light-blue);
+        }
+
+        .industry-icon {
+            font-size: 24px;
+            width: 40px;
+            text-align: center;
+        }
+
+        .industry-info h4 {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 2px;
+        }
+
+        .industry-info p {
+            font-size: 12px;
+            color: var(--gray-600);
+        }
+
+        .voice-option {
+            padding: 10px;
+            border: 1px solid #D1D1D1;
+            border-radius: 6px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .voice-option:hover {
+            border-color: var(--primary-blue);
+            background-color: #F3F9FF;
+        }
+
+        .voice-option.selected {
+            border-color: var(--primary-blue);
+            background-color: var(--light-blue);
+        }
+
+        .avatar-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 400px;
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            border-radius: 12px;
+            border: 2px dashed #D1D1D1;
+            margin-bottom: 20px;
+            position: relative;
+        }
+
+        #avatarVideo {
+            width: 100%;
+            max-width: 500px;
+            height: auto;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+
+        .avatar-placeholder {
+            text-align: center;
+            color: var(--gray-600);
+        }
+
+        .avatar-placeholder h3 {
+            margin-bottom: 8px;
+            font-size: 18px;
+        }
+
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 6px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 14px;
+        }
+
+        .btn-primary {
+            background-color: var(--primary-blue);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background-color: var(--secondary-blue);
+        }
+
+        .btn-secondary {
+            background-color: var(--gray-200);
+            color: var(--gray-600);
+        }
+
+        .btn-secondary:hover {
+            background-color: #D1D1D1;
+        }
+
+        .btn-success {
+            background-color: var(--success-green);
+            color: white;
+        }
+
+        .btn-warning {
+            background-color: var(--warning-orange);
+            color: white;
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .status {
+            padding: 12px;
+            border-radius: 6px;
+            margin-bottom: 16px;
+            font-weight: 500;
+        }
+
+        .status.info {
+            background-color: var(--light-blue);
+            color: var(--primary-blue);
+            border: 1px solid var(--primary-blue);
+        }
+
+        .status.success {
+            background-color: #DFF6DD;
+            color: var(--success-green);
+            border: 1px solid var(--success-green);
+        }
+
+        .status.error {
+            background-color: #FDE7E9;
+            color: #D13438;
+            border: 1px solid #D13438;
+        }
+
+        .text-input-section {
+            margin-top: 20px;
+        }
+
+        .text-input-section textarea {
+            width: 100%;
+            min-height: 80px;
+            padding: 12px;
+            border: 1px solid #D1D1D1;
+            border-radius: 6px;
+            resize: vertical;
+            font-family: inherit;
+        }
+
+        .connection-status {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .connection-status.connected {
+            background-color: var(--success-green);
+            color: white;
+        }
+
+        .connection-status.disconnected {
+            background-color: var(--gray-600);
+            color: white;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                grid-template-columns: 1fr;
+                gap: 16px;
+                padding: 16px;
+            }
+            
+            .header-content {
+                padding: 0 16px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="header-content">
+            <div>
+                <div class="logo">Microsoft AI Avatar</div>
+                <div class="subtitle">Industry Solutions Platform</div>
+            </div>
+            <div class="connection-status disconnected" id="connectionStatus">Disconnected</div>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="sidebar">
+            <!-- Configuration Section -->
+            <div class="section">
+                <h3>Azure Configuration</h3>
+                <div class="form-group">
+                    <label for="subscriptionKey">Speech Subscription Key</label>
+                    <input type="password" id="subscriptionKey" placeholder="Enter your subscription key">
+                </div>
+                <div class="form-group">
+                    <label for="serviceRegion">Service Region</label>
+                    <input type="text" id="serviceRegion" placeholder="e.g., westus2" value="westus2">
+                </div>
+            </div>
+
+            <!-- Customer Information -->
+            <div class="section">
+                <h3>Customer Information</h3>
+                <div class="form-group">
+                    <label for="customerName">Customer Name</label>
+                    <input type="text" id="customerName" placeholder="Enter customer name">
+                </div>
+                <div class="form-group">
+                    <label for="companyName">Company Name</label>
+                    <input type="text" id="companyName" placeholder="Enter company name">
+                </div>
+            </div>
+
+            <!-- Industry Selection -->
+            <div class="section">
+                <h3>Industry</h3>
+                <div id="industrySelection">
+                    <div class="industry-card" data-industry="healthcare">
+                        <div class="industry-icon">🏥</div>
+                        <div class="industry-info">
+                            <h4>Healthcare</h4>
+                            <p>Medical services & patient care</p>
+                        </div>
+                    </div>
+                    <div class="industry-card" data-industry="finance">
+                        <div class="industry-icon">🏦</div>
+                        <div class="industry-info">
+                            <h4>Finance</h4>
+                            <p>Banking & financial services</p>
+                        </div>
+                    </div>
+                    <div class="industry-card" data-industry="education">
+                        <div class="industry-icon">🎓</div>
+                        <div class="industry-info">
+                            <h4>Education</h4>
+                            <p>Learning & academic institutions</p>
+                        </div>
+                    </div>
+                    <div class="industry-card" data-industry="manufacturing">
+                        <div class="industry-icon">🏭</div>
+                        <div class="industry-info">
+                            <h4>Manufacturing</h4>
+                            <p>Production & industrial services</p>
+                        </div>
+                    </div>
+                    <div class="industry-card" data-industry="retail">
+                        <div class="industry-icon">🛍️</div>
+                        <div class="industry-info">
+                            <h4>Retail</h4>
+                            <p>Commerce & customer service</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Voice Selection -->
+            <div class="section">
+                <h3>Avatar Voice</h3>
+                <div id="voiceSelection">
+                    <div class="voice-option" data-voice="en-US-AvaMultilingualNeural">
+                        <span>Ava (English) - Multilingual</span>
+                        <span>🌐</span>
+                    </div>
+                    <div class="voice-option" data-voice="en-US-JennyNeural">
+                        <span>Jenny (English) - Professional</span>
+                        <span>💼</span>
+                    </div>
+                    <div class="voice-option" data-voice="es-ES-ElviraNeural">
+                        <span>Elvira (Spanish) - Native</span>
+                        <span>🇪🇸</span>
+                    </div>
+                    <div class="voice-option" data-voice="fr-FR-DeniseNeural">
+                        <span>Denise (French) - Native</span>
+                        <span>🇫🇷</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Avatar Character -->
+            <div class="section">
+                <h3>Avatar Character</h3>
+                <div class="form-group">
+                    <select id="avatarCharacter">
+                        <option value="lisa">Lisa - Professional Avatar</option>
+                        <option value="sara">Sara - Friendly Avatar</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <select id="avatarStyle">
+                        <option value="graceful-sitting">Graceful Sitting</option>
+                        <option value="casual-sitting">Casual Sitting</option>
+                        <option value="friendly-standing">Friendly Standing</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <div class="main-content">
+            <!-- Status Display -->
+            <div id="statusDisplay"></div>
+
+            <!-- Avatar Display -->
+            <div class="avatar-container">
+                <video id="avatarVideo" style="display: none;" controls></video>
+                <div class="avatar-placeholder" id="avatarPlaceholder">
+                    <h3>AI Avatar Ready</h3>
+                    <p>Click "Start Avatar Session" to begin</p>
+                </div>
+            </div>
+
+            <!-- Controls -->
+            <div class="controls">
+                <button class="btn btn-primary" id="startSessionBtn">Start Avatar Session</button>
+                <button class="btn btn-secondary" id="stopSessionBtn" disabled>Stop Session</button>
+                <button class="btn btn-success" id="startMicBtn" disabled>Start Microphone</button>
+                <button class="btn btn-warning" id="stopMicBtn" disabled>Stop Microphone</button>
+                <button class="btn btn-secondary" id="stopSpeakingBtn" disabled>Stop Speaking</button>
+            </div>
+
+            <!-- Text Input Section -->
+            <div class="text-input-section">
+                <h3>Manual Text Input</h3>
+                <textarea id="manualText" placeholder="Enter text for the avatar to speak..."></textarea>
+                <button class="btn btn-primary" id="speakTextBtn" disabled style="margin-top: 8px;">Speak Text</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        class AvatarApp {
+            constructor() {
+                this.avatarSynthesizer = null;
+                this.speechRecognizer = null;
+                this.isSessionActive = false;
+                this.isMicrophoneActive = false;
+                
+                this.selectedIndustry = null;
+                this.selectedVoice = 'en-US-AvaMultilingualNeural';
+                
+                this.initializeEventListeners();
+                this.initializeDefaultSelections();
+            }
+
+            initializeDefaultSelections() {
+                // Select first industry by default
+                const firstIndustry = document.querySelector('.industry-card');
+                if (firstIndustry) {
+                    firstIndustry.click();
+                }
+
+                // Select first voice by default
+                const firstVoice = document.querySelector('.voice-option');
+                if (firstVoice) {
+                    firstVoice.click();
+                }
+            }
+
+            initializeEventListeners() {
+                // Industry selection
+                document.querySelectorAll('.industry-card').forEach(card => {
+                    card.addEventListener('click', () => {
+                        document.querySelectorAll('.industry-card').forEach(c => c.classList.remove('selected'));
+                        card.classList.add('selected');
+                        this.selectedIndustry = card.dataset.industry;
+                    });
+                });
+
+                // Voice selection
+                document.querySelectorAll('.voice-option').forEach(option => {
+                    option.addEventListener('click', () => {
+                        document.querySelectorAll('.voice-option').forEach(o => o.classList.remove('selected'));
+                        option.classList.add('selected');
+                        this.selectedVoice = option.dataset.voice;
+                    });
+                });
+
+                // Control buttons
+                document.getElementById('startSessionBtn').addEventListener('click', () => this.startAvatarSession());
+                document.getElementById('stopSessionBtn').addEventListener('click', () => this.stopAvatarSession());
+                document.getElementById('startMicBtn').addEventListener('click', () => this.startMicrophone());
+                document.getElementById('stopMicBtn').addEventListener('click', () => this.stopMicrophone());
+                document.getElementById('stopSpeakingBtn').addEventListener('click', () => this.stopSpeaking());
+                document.getElementById('speakTextBtn').addEventListener('click', () => this.speakManualText());
+            }
+
+            showStatus(message, type = 'info') {
+                const statusDisplay = document.getElementById('statusDisplay');
+                statusDisplay.innerHTML = `<div class="status ${type}">${message}</div>`;
+                
+                // Auto-hide info messages after 5 seconds
+                if (type === 'info') {
+                    setTimeout(() => {
+                        statusDisplay.innerHTML = '';
+                    }, 5000);
+                }
+            }
+
+            updateConnectionStatus(connected) {
+                const statusElement = document.getElementById('connectionStatus');
+                statusElement.textContent = connected ? 'Connected' : 'Disconnected';
+                statusElement.className = connected ? 'connection-status connected' : 'connection-status disconnected';
+            }
+
+            validateConfiguration() {
+                const subscriptionKey = document.getElementById('subscriptionKey').value.trim();
+                const serviceRegion = document.getElementById('serviceRegion').value.trim();
+                
+                if (!subscriptionKey) {
+                    this.showStatus('Please enter your Speech subscription key', 'error');
+                    return false;
+                }
+                
+                if (!serviceRegion) {
+                    this.showStatus('Please enter your service region', 'error');
+                    return false;
+                }
+
+                if (!this.selectedIndustry) {
+                    this.showStatus('Please select an industry', 'error');
+                    return false;
+                }
+
+                return true;
+            }
+
+            generateIndustryPrompt() {
+                const customerName = document.getElementById('customerName').value || 'valued customer';
+                const companyName = document.getElementById('companyName').value || 'your organization';
+                
+                const industryPrompts = {
+                    healthcare: `Hello ${customerName}, I'm your AI healthcare assistant from Microsoft. I'm here to help ${companyName} leverage Azure AI services for improved patient care, medical data management, and healthcare innovation. How can I assist you with your healthcare technology needs today?`,
+                    
+                    finance: `Welcome ${customerName}, I'm your financial services AI partner from Microsoft. I'm excited to help ${companyName} explore Azure AI solutions for risk management, fraud detection, customer insights, and regulatory compliance. What financial technology challenges can we address together?`,
+                    
+                    education: `Hello ${customerName}, I'm your education technology specialist from Microsoft. I'm here to help ${companyName} transform learning experiences with AI-powered solutions including personalized learning, student analytics, and educational content management. How can we enhance your educational initiatives?`,
+                    
+                    manufacturing: `Welcome ${customerName}, I'm your manufacturing AI consultant from Microsoft. I'm ready to help ${companyName} optimize operations with predictive maintenance, quality control, supply chain management, and smart factory solutions. What manufacturing challenges shall we tackle?`,
+                    
+                    retail: `Hello ${customerName}, I'm your retail technology advisor from Microsoft. I'm here to help ${companyName} enhance customer experiences with personalized recommendations, inventory optimization, demand forecasting, and omnichannel solutions. How can we boost your retail performance?`
+                };
+
+                return industryPrompts[this.selectedIndustry] || industryPrompts.healthcare;
+            }
+
+            async startAvatarSession() {
+                if (!this.validateConfiguration()) {
+                    return;
+                }
+
+                try {
+                    this.showStatus('Loading Speech SDK...', 'info');
+                    
+                    // Wait for Speech SDK to load
+                    await waitForSpeechSDK();
+                    
+                    this.showStatus('Starting avatar session...', 'info');
+                    
+                    const subscriptionKey = document.getElementById('subscriptionKey').value.trim();
+                    const serviceRegion = document.getElementById('serviceRegion').value.trim();
+                    const avatarCharacter = document.getElementById('avatarCharacter').value;
+                    const avatarStyle = document.getElementById('avatarStyle').value;
+
+                    // Create speech config
+                    const speechConfig = SpeechSDK.SpeechConfig.fromSubscription(subscriptionKey, serviceRegion);
+                    speechConfig.speechSynthesisVoiceName = this.selectedVoice;
+
+                    // Create avatar config
+                    const avatarConfig = new SpeechSDK.AvatarConfig(avatarCharacter, avatarStyle);
+                    
+                    // Create avatar synthesizer
+                    this.avatarSynthesizer = new SpeechSDK.AvatarSynthesizer(speechConfig, avatarConfig);
+
+                    // Set up event handlers
+                    this.avatarSynthesizer.avatarEventReceived = (s, e) => {
+                        console.log('Avatar event:', e);
+                    };
+
+                    this.avatarSynthesizer.synthesisStarted = (s, e) => {
+                        console.log('Synthesis started');
+                        this.showStatus('Avatar is speaking...', 'info');
+                    };
+
+                    this.avatarSynthesizer.synthesisCompleted = (s, e) => {
+                        console.log('Synthesis completed');
+                    };
+
+                    // Start avatar session
+                    const videoElement = document.getElementById('avatarVideo');
+                    
+                    await new Promise((resolve, reject) => {
+                        this.avatarSynthesizer.startAvatarAsync(
+                            videoElement,
+                            () => {
+                                this.isSessionActive = true;
+                                this.updateConnectionStatus(true);
+                                this.showStatus('Avatar session started successfully!', 'success');
+                                
+                                // Update UI
+                                document.getElementById('startSessionBtn').disabled = true;
+                                document.getElementById('stopSessionBtn').disabled = false;
+                                document.getElementById('startMicBtn').disabled = false;
+                                document.getElementById('speakTextBtn').disabled = false;
+                                document.getElementById('stopSpeakingBtn').disabled = false;
+                                
+                                // Show video, hide placeholder
+                                videoElement.style.display = 'block';
+                                document.getElementById('avatarPlaceholder').style.display = 'none';
+                                
+                                // Speak initial industry-specific greeting
+                                setTimeout(() => {
+                                    const greeting = this.generateIndustryPrompt();
+                                    this.speakText(greeting);
+                                }, 1000);
+                                
+                                resolve();
+                            },
+                            (error) => {
+                                this.showStatus(`Failed to start avatar session: ${error}`, 'error');
+                                console.error('Avatar session error:', error);
+                                reject(error);
+                            }
+                        );
+                    });
+
+                } catch (error) {
+                    this.showStatus(`Error starting avatar session: ${error.message}`, 'error');
+                    console.error('Error:', error);
+                }
+            }
+
+            async stopAvatarSession() {
+                try {
+                    if (this.avatarSynthesizer) {
+                        this.avatarSynthesizer.stopAvatarAsync();
+                        this.avatarSynthesizer.close();
+                        this.avatarSynthesizer = null;
+                    }
+
+                    if (this.speechRecognizer) {
+                        this.speechRecognizer.stopContinuousRecognitionAsync();
+                        this.speechRecognizer.close();
+                        this.speechRecognizer = null;
+                    }
+
+                    this.isSessionActive = false;
+                    this.isMicrophoneActive = false;
+                    this.updateConnectionStatus(false);
+                    this.showStatus('Avatar session stopped', 'info');
+
+                    // Update UI
+                    document.getElementById('startSessionBtn').disabled = false;
+                    document.getElementById('stopSessionBtn').disabled = true;
+                    document.getElementById('startMicBtn').disabled = true;
+                    document.getElementById('stopMicBtn').disabled = true;
+                    document.getElementById('speakTextBtn').disabled = true;
+                    
+                    // Hide video, show placeholder
+                    document.getElementById('avatarVideo').style.display = 'none';
+                    document.getElementById('avatarPlaceholder').style.display = 'block';
+
+                } catch (error) {
+                    this.showStatus(`Error stopping session: ${error.message}`, 'error');
+                }
+            }
+
+            async startMicrophone() {
+                if (!this.isSessionActive) {
+                    this.showStatus('Please start avatar session first', 'error');
+                    return;
+                }
+
+                try {
+                    const subscriptionKey = document.getElementById('subscriptionKey').value.trim();
+                    const serviceRegion = document.getElementById('serviceRegion').value.trim();
+
+                    const speechConfig = SpeechSDK.SpeechConfig.fromSubscription(subscriptionKey, serviceRegion);
+                    speechConfig.speechRecognitionLanguage = this.getLanguageFromVoice(this.selectedVoice);
+
+                    const audioConfig = SpeechSDK.AudioConfig.fromDefaultMicrophoneInput();
+                    this.speechRecognizer = new SpeechSDK.SpeechRecognizer(speechConfig, audioConfig);
+
+                    this.speechRecognizer.recognizing = (s, e) => {
+                        console.log('Recognizing:', e.result.text);
+                    };
+
+                    this.speechRecognizer.recognized = (s, e) => {
+                        if (e.result.reason === SpeechSDK.ResultReason.RecognizedSpeech) {
+                            const recognizedText = e.result.text;
+                            console.log('Recognized:', recognizedText);
+                            
+                            if (recognizedText.trim()) {
+                                // Generate response based on industry context
+                                const response = this.generateIndustryResponse(recognizedText);
+                                this.speakText(response);
+                            }
+                        }
+                    };
+
+                    this.speechRecognizer.startContinuousRecognitionAsync();
+                    this.isMicrophoneActive = true;
+                    
+                    document.getElementById('startMicBtn').disabled = true;
+                    document.getElementById('stopMicBtn').disabled = false;
+                    
+                    this.showStatus('Microphone started - speak now!', 'success');
+
+                } catch (error) {
+                    this.showStatus(`Error starting microphone: ${error.message}`, 'error');
+                }
+            }
+
+            stopMicrophone() {
+                if (this.speechRecognizer) {
+                    this.speechRecognizer.stopContinuousRecognitionAsync();
+                    this.speechRecognizer.close();
+                    this.speechRecognizer = null;
+                }
+
+                this.isMicrophoneActive = false;
+                document.getElementById('startMicBtn').disabled = false;
+                document.getElementById('stopMicBtn').disabled = true;
+                
+                this.showStatus('Microphone stopped', 'info');
+            }
+
+            stopSpeaking() {
+                if (this.avatarSynthesizer) {
+                    this.avatarSynthesizer.stopSpeakingAsync();
+                    this.showStatus('Avatar stopped speaking', 'info');
+                }
+            }
+
+            speakManualText() {
+                const text = document.getElementById('manualText').value.trim();
+                if (!text) {
+                    this.showStatus('Please enter text to speak', 'error');
+                    return;
+                }
+
+                this.speakText(text);
+                document.getElementById('manualText').value = '';
+            }
+
+            speakText(text) {
+                if (!this.avatarSynthesizer || !this.isSessionActive) {
+                    this.showStatus('Avatar session not active', 'error');
+                    return;
+                }
+
+                this.avatarSynthesizer.speakTextAsync(text);
+            }
+
+            getLanguageFromVoice(voice) {
+                const languageMap = {
+                    'en-US-AvaMultilingualNeural': 'en-US',
+                    'en-US-JennyNeural': 'en-US',
+                    'es-ES-ElviraNeural': 'es-ES',
+                    'fr-FR-DeniseNeural': 'fr-FR'
+                };
+                return languageMap[voice] || 'en-US';
+            }
+
+            generateIndustryResponse(userInput) {
+                const customerName = document.getElementById('customerName').value || 'valued customer';
+                
+                // Simple keyword-based responses for different industries
+                const responses = {
+                    healthcare: {
+                        'patient': `${customerName}, I understand you're interested in patient care solutions. Microsoft Azure offers HIPAA-compliant AI services for patient data analysis, predictive healthcare, and telemedicine platforms. Would you like to explore specific healthcare AI capabilities?`,
+                        'data': `For healthcare data management, ${customerName}, Azure provides secure, compliant solutions for medical records, imaging analysis, and clinical decision support. Our AI can help improve patient outcomes while maintaining privacy standards.`,
+                        'default': `Thank you for your question, ${customerName}. In healthcare, Azure AI can transform patient care through predictive analytics, medical imaging AI, and intelligent patient monitoring. How can we help your healthcare organization?`
+                    },
+                    finance: {
+                        'risk': `${customerName}, Azure AI excels in financial risk management with real-time fraud detection, credit risk assessment, and regulatory compliance automation. Our solutions help financial institutions make smarter, safer decisions.`,
+                        'customer': `For customer insights in finance, ${customerName}, we offer personalized banking experiences, automated customer service, and intelligent investment recommendations. Would you like to see how we can enhance your customer relationships?`,
+                        'default': `Thank you, ${customerName}. Azure AI transforms financial services through fraud detection, algorithmic trading, customer analytics, and regulatory compliance. What financial challenges can we help solve?`
+                    },
+                    education: {
+                        'student': `${customerName}, Azure AI can personalize learning experiences for every student through adaptive learning platforms, automated grading, and learning analytics. We help educators focus on what matters most - teaching.`,
+                        'learning': `For enhanced learning outcomes, ${customerName}, our AI provides intelligent tutoring systems, content recommendations, and predictive analytics to identify at-risk students early. Education becomes more effective and inclusive.`,
+                        'default': `Thank you, ${customerName}. Azure AI revolutionizes education through personalized learning, intelligent content creation, and student success analytics. How can we support your educational goals?`
+                    },
+                    manufacturing: {
+                        'production': `${customerName}, Azure AI optimizes production through predictive maintenance, quality control automation, and supply chain intelligence. We help manufacturers reduce downtime and improve efficiency.`,
+                        'quality': `For quality control, ${customerName}, our computer vision AI can detect defects faster and more accurately than traditional methods, ensuring consistent product quality while reducing waste.`,
+                        'default': `Thank you, ${customerName}. Azure AI transforms manufacturing with predictive maintenance, quality assurance, demand forecasting, and smart factory automation. What manufacturing challenges shall we address?`
+                    },
+                    retail: {
+                        'customer': `${customerName}, Azure AI enhances customer experiences through personalized recommendations, dynamic pricing, and omnichannel customer service. We help retailers increase sales and customer satisfaction.`,
+                        'inventory': `For inventory management, ${customerName}, our AI provides demand forecasting, automated replenishment, and optimal pricing strategies. Reduce stockouts while minimizing excess inventory.`,
+                        'default': `Thank you, ${customerName}. Azure AI empowers retail through customer personalization, inventory optimization, price intelligence, and supply chain efficiency. How can we boost your retail performance?`
+                    }
+                };
+
+                const industryResponses = responses[this.selectedIndustry] || responses.healthcare;
+                
+                // Check for keywords in user input
+                for (const [keyword, response] of Object.entries(industryResponses)) {
+                    if (keyword !== 'default' && userInput.toLowerCase().includes(keyword)) {
+                        return response;
+                    }
+                }
+                
+                return industryResponses.default;
+            }
+        }
+
+        // Initialize the application when the page loads
+        window.addEventListener('DOMContentLoaded', () => {
+            new AvatarApp();
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,820 @@
+"""
+Global AI Avatar Analytics System
+Comprehensive metrics tracking for AI Avatar applications across all users and sessions
+Uses Azure Cosmos DB for persistent global metrics storage
+"""
+
+import os
+import json
+import logging
+import uuid
+from datetime import datetime, timedelta, timezone
+from typing import Dict, List, Any, Optional
+import pymongo
+from pymongo import MongoClient
+from dataclasses import dataclass, asdict
+from collections import defaultdict
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+@dataclass
+class GlobalMetrics:
+    """Data class for global platform metrics"""
+    total_videos_generated: int = 0
+    total_engagements: int = 0
+    total_tokens_consumed: int = 0
+    total_users: int = 0
+    active_users_today: int = 0
+    active_users_this_week: int = 0
+    active_users_this_month: int = 0
+    videos_by_avatar: Dict[str, int] = None
+    videos_by_language: Dict[str, int] = None
+    videos_by_industry: Dict[str, int] = None
+    engagement_by_day: Dict[str, int] = None
+    last_updated: str = None
+    
+    def __post_init__(self):
+        if self.videos_by_avatar is None:
+            self.videos_by_avatar = {}
+        if self.videos_by_language is None:
+            self.videos_by_language = {}
+        if self.videos_by_industry is None:
+            self.videos_by_industry = {}
+        if self.engagement_by_day is None:
+            self.engagement_by_day = {}
+        if self.last_updated is None:
+            self.last_updated = datetime.now(timezone.utc).isoformat()
+
+@dataclass
+class UserEngagement:
+    """Enhanced user engagement data"""
+    engagement_id: str
+    username: str
+    customer_name: str
+    company_name: str = ""
+    industry: str = ""
+    avatar_name: str = ""
+    language: str = ""
+    text_input: str = ""
+    video_url: str = ""
+    tokens_used: int = 0
+    words_count: int = 0
+    session_id: str = ""
+    ip_address: str = ""
+    user_agent: str = ""
+    timestamp: str = ""
+    processing_time_seconds: float = 0
+    video_duration_seconds: float = 0
+    application_source: str = "streamlit"  # streamlit, html, api
+    
+    def __post_init__(self):
+        if not self.engagement_id:
+            self.engagement_id = str(uuid.uuid4())
+        if not self.timestamp:
+            self.timestamp = datetime.now(timezone.utc).isoformat()
+
+class GlobalAvatarAnalytics:
+    """
+    Comprehensive analytics system for AI Avatar applications
+    Tracks global metrics across all users and applications
+    """
+    
+    def __init__(self, connection_string: str, database_name: str = "avatarbatch"):
+        """
+        Initialize the analytics system
+        
+        Args:
+            connection_string: Azure Cosmos DB connection string
+            database_name: Database name (default: avatarbatch)
+        """
+        self.connection_string = connection_string
+        self.database_name = database_name
+        self.engagements_collection_name = "user_engagements"
+        self.metrics_collection_name = "global_metrics"
+        self.users_collection_name = "user_profiles"
+        
+        self.client = None
+        self.database = None
+        self.engagements_collection = None
+        self.metrics_collection = None
+        self.users_collection = None
+        
+        self._connect()
+    
+    def _connect(self) -> bool:
+        """Establish connection to Cosmos DB"""
+        try:
+            self.client = MongoClient(self.connection_string)
+            self.database = self.client[self.database_name]
+            
+            # Initialize collections
+            self.engagements_collection = self.database[self.engagements_collection_name]
+            self.metrics_collection = self.database[self.metrics_collection_name]
+            self.users_collection = self.database[self.users_collection_name]
+            
+            # Create indexes for better performance
+            self._create_indexes()
+            
+            # Initialize global metrics if not exists
+            self._initialize_global_metrics()
+            
+            logger.info("Successfully connected to Cosmos DB")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to connect to Cosmos DB: {str(e)}")
+            return False
+    
+    def _create_indexes(self):
+        """Create database indexes for optimal performance"""
+        try:
+            # Engagement collection indexes
+            self.engagements_collection.create_index("username")
+            self.engagements_collection.create_index("timestamp")
+            self.engagements_collection.create_index("avatar_name")
+            self.engagements_collection.create_index("language")
+            self.engagements_collection.create_index("industry")
+            self.engagements_collection.create_index("application_source")
+            self.engagements_collection.create_index([("timestamp", -1)])  # Descending for recent first
+            
+            # Users collection indexes
+            self.users_collection.create_index("username", unique=True)
+            self.users_collection.create_index("last_active")
+            
+            logger.info("Database indexes created successfully")
+            
+        except Exception as e:
+            logger.warning(f"Index creation warning: {str(e)}")
+    
+    def _initialize_global_metrics(self):
+        """Initialize global metrics document if it doesn't exist"""
+        try:
+            existing_metrics = self.metrics_collection.find_one({"_id": "global_metrics"})
+            if not existing_metrics:
+                initial_metrics = asdict(GlobalMetrics())
+                initial_metrics["_id"] = "global_metrics"
+                self.metrics_collection.insert_one(initial_metrics)
+                logger.info("Initialized global metrics document")
+        except Exception as e:
+            logger.error(f"Failed to initialize global metrics: {str(e)}")
+    
+    def save_engagement(self, engagement: UserEngagement) -> bool:
+        """
+        Save user engagement and update global metrics
+        
+        Args:
+            engagement: UserEngagement object
+            
+        Returns:
+            bool: Success status
+        """
+        try:
+            # Save engagement
+            engagement_data = asdict(engagement)
+            self.engagements_collection.insert_one(engagement_data)
+            
+            # Update user profile
+            self._update_user_profile(engagement)
+            
+            # Update global metrics
+            self._update_global_metrics(engagement)
+            
+            logger.info(f"Engagement saved for user: {engagement.username}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to save engagement: {str(e)}")
+            return False
+    
+    def _update_user_profile(self, engagement: UserEngagement):
+        """Update or create user profile"""
+        try:
+            user_data = {
+                "username": engagement.username,
+                "last_active": engagement.timestamp,
+                "last_customer_name": engagement.customer_name,
+                "last_company_name": engagement.company_name,
+                "last_industry": engagement.industry,
+                "last_avatar_used": engagement.avatar_name,
+                "last_language_used": engagement.language,
+                "last_application_source": engagement.application_source
+            }
+            
+            self.users_collection.update_one(
+                {"username": engagement.username},
+                {
+                    "$set": user_data,
+                    "$inc": {
+                        "total_engagements": 1,
+                        "total_tokens": engagement.tokens_used,
+                        "total_words": engagement.words_count
+                    },
+                    "$setOnInsert": {
+                        "first_engagement": engagement.timestamp,
+                        "created_date": engagement.timestamp
+                    }
+                },
+                upsert=True
+            )
+            
+        except Exception as e:
+            logger.error(f"Failed to update user profile: {str(e)}")
+    
+    def _update_global_metrics(self, engagement: UserEngagement):
+        """Update global metrics with new engagement"""
+        try:
+            today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            
+            update_operations = {
+                "$inc": {
+                    "total_videos_generated": 1,
+                    "total_engagements": 1,
+                    "total_tokens_consumed": engagement.tokens_used,
+                    f"videos_by_avatar.{engagement.avatar_name}": 1,
+                    f"videos_by_language.{engagement.language}": 1,
+                    f"engagement_by_day.{today_str}": 1
+                },
+                "$set": {
+                    "last_updated": datetime.now(timezone.utc).isoformat()
+                }
+            }
+            
+            # Add industry tracking if provided
+            if engagement.industry:
+                update_operations["$inc"][f"videos_by_industry.{engagement.industry}"] = 1
+            
+            self.metrics_collection.update_one(
+                {"_id": "global_metrics"},
+                update_operations,
+                upsert=True
+            )
+            
+            # Update user counts
+            self._update_user_counts()
+            
+        except Exception as e:
+            logger.error(f"Failed to update global metrics: {str(e)}")
+    
+    def _update_user_counts(self):
+        """Update active user counts"""
+        try:
+            now = datetime.now(timezone.utc)
+            today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            week_ago = today - timedelta(days=7)
+            month_ago = today - timedelta(days=30)
+            
+            # Count total users
+            total_users = self.users_collection.count_documents({})
+            
+            # Count active users
+            active_today = self.users_collection.count_documents({
+                "last_active": {"$gte": today.isoformat()}
+            })
+            
+            active_week = self.users_collection.count_documents({
+                "last_active": {"$gte": week_ago.isoformat()}
+            })
+            
+            active_month = self.users_collection.count_documents({
+                "last_active": {"$gte": month_ago.isoformat()}
+            })
+            
+            # Update metrics
+            self.metrics_collection.update_one(
+                {"_id": "global_metrics"},
+                {
+                    "$set": {
+                        "total_users": total_users,
+                        "active_users_today": active_today,
+                        "active_users_this_week": active_week,
+                        "active_users_this_month": active_month,
+                        "last_updated": now.isoformat()
+                    }
+                }
+            )
+            
+        except Exception as e:
+            logger.error(f"Failed to update user counts: {str(e)}")
+    
+    def get_global_metrics(self) -> GlobalMetrics:
+        """
+        Get current global metrics
+        
+        Returns:
+            GlobalMetrics: Current global metrics
+        """
+        try:
+            metrics_data = self.metrics_collection.find_one({"_id": "global_metrics"})
+            if metrics_data:
+                # Remove MongoDB _id field
+                metrics_data.pop("_id", None)
+                return GlobalMetrics(**metrics_data)
+            else:
+                return GlobalMetrics()
+                
+        except Exception as e:
+            logger.error(f"Failed to get global metrics: {str(e)}")
+            return GlobalMetrics()
+    
+    def get_user_stats(self, username: str) -> Dict[str, Any]:
+        """
+        Get comprehensive user statistics
+        
+        Args:
+            username: Username to get stats for
+            
+        Returns:
+            Dict containing user statistics
+        """
+        try:
+            # Get user profile
+            user_profile = self.users_collection.find_one({"username": username})
+            
+            # Get recent engagements
+            recent_engagements = list(self.engagements_collection.find(
+                {"username": username},
+                {"timestamp": 1, "avatar_name": 1, "language": 1, "tokens_used": 1}
+            ).sort("timestamp", -1).limit(10))
+            
+            # Calculate user metrics
+            if user_profile:
+                stats = {
+                    "total_engagements": user_profile.get("total_engagements", 0),
+                    "total_tokens": user_profile.get("total_tokens", 0),
+                    "total_words": user_profile.get("total_words", 0),
+                    "first_engagement": user_profile.get("first_engagement", ""),
+                    "last_active": user_profile.get("last_active", ""),
+                    "favorite_avatar": self._get_user_favorite_avatar(username),
+                    "favorite_language": self._get_user_favorite_language(username),
+                    "recent_engagements": recent_engagements,
+                    "engagement_streak": self._calculate_engagement_streak(username)
+                }
+            else:
+                stats = {
+                    "total_engagements": 0,
+                    "total_tokens": 0,
+                    "total_words": 0,
+                    "first_engagement": "",
+                    "last_active": "",
+                    "favorite_avatar": "N/A",
+                    "favorite_language": "N/A",
+                    "recent_engagements": [],
+                    "engagement_streak": 0
+                }
+            
+            return stats
+            
+        except Exception as e:
+            logger.error(f"Failed to get user stats: {str(e)}")
+            return {"error": str(e)}
+    
+    def _get_user_favorite_avatar(self, username: str) -> str:
+        """Get user's most used avatar"""
+        try:
+            pipeline = [
+                {"$match": {"username": username}},
+                {"$group": {"_id": "$avatar_name", "count": {"$sum": 1}}},
+                {"$sort": {"count": -1}},
+                {"$limit": 1}
+            ]
+            
+            result = list(self.engagements_collection.aggregate(pipeline))
+            return result[0]["_id"] if result else "N/A"
+            
+        except Exception as e:
+            logger.error(f"Failed to get favorite avatar: {str(e)}")
+            return "N/A"
+    
+    def _get_user_favorite_language(self, username: str) -> str:
+        """Get user's most used language"""
+        try:
+            pipeline = [
+                {"$match": {"username": username}},
+                {"$group": {"_id": "$language", "count": {"$sum": 1}}},
+                {"$sort": {"count": -1}},
+                {"$limit": 1}
+            ]
+            
+            result = list(self.engagements_collection.aggregate(pipeline))
+            return result[0]["_id"] if result else "N/A"
+            
+        except Exception as e:
+            logger.error(f"Failed to get favorite language: {str(e)}")
+            return "N/A"
+    
+    def _calculate_engagement_streak(self, username: str) -> int:
+        """Calculate user's current engagement streak (consecutive days)"""
+        try:
+            # Get user's engagement dates in descending order
+            engagements = list(self.engagements_collection.find(
+                {"username": username},
+                {"timestamp": 1}
+            ).sort("timestamp", -1))
+            
+            if not engagements:
+                return 0
+            
+            # Extract unique dates
+            engagement_dates = set()
+            for engagement in engagements:
+                date_str = engagement["timestamp"][:10]  # YYYY-MM-DD format
+                engagement_dates.add(date_str)
+            
+            # Sort dates in descending order
+            sorted_dates = sorted(engagement_dates, reverse=True)
+            
+            # Calculate streak
+            streak = 0
+            current_date = datetime.now(timezone.utc).date()
+            
+            for date_str in sorted_dates:
+                engagement_date = datetime.fromisoformat(date_str.replace('Z', '+00:00')).date()
+                
+                if engagement_date == current_date:
+                    streak += 1
+                    current_date -= timedelta(days=1)
+                elif engagement_date == current_date - timedelta(days=1):
+                    streak += 1
+                    current_date = engagement_date - timedelta(days=1)
+                else:
+                    break
+            
+            return streak
+            
+        except Exception as e:
+            logger.error(f"Failed to calculate engagement streak: {str(e)}")
+            return 0
+    
+    def get_analytics_dashboard_data(self) -> Dict[str, Any]:
+        """
+        Get comprehensive analytics data for dashboard
+        
+        Returns:
+            Dict containing all analytics data
+        """
+        try:
+            # Global metrics
+            global_metrics = self.get_global_metrics()
+            
+            # Top users
+            top_users = self._get_top_users()
+            
+            # Recent activity
+            recent_activity = self._get_recent_activity()
+            
+            # Growth trends
+            growth_trends = self._get_growth_trends()
+            
+            # Industry breakdown
+            industry_breakdown = self._get_industry_breakdown()
+            
+            # Performance metrics
+            performance_metrics = self._get_performance_metrics()
+            
+            dashboard_data = {
+                "global_metrics": asdict(global_metrics),
+                "top_users": top_users,
+                "recent_activity": recent_activity,
+                "growth_trends": growth_trends,
+                "industry_breakdown": industry_breakdown,
+                "performance_metrics": performance_metrics,
+                "last_updated": datetime.now(timezone.utc).isoformat()
+            }
+            
+            return dashboard_data
+            
+        except Exception as e:
+            logger.error(f"Failed to get dashboard data: {str(e)}")
+            return {"error": str(e)}
+    
+    def _get_top_users(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """Get top users by engagement count"""
+        try:
+            pipeline = [
+                {"$sort": {"total_engagements": -1}},
+                {"$limit": limit},
+                {"$project": {
+                    "username": 1,
+                    "total_engagements": 1,
+                    "total_tokens": 1,
+                    "last_active": 1,
+                    "last_avatar_used": 1
+                }}
+            ]
+            
+            return list(self.users_collection.aggregate(pipeline))
+            
+        except Exception as e:
+            logger.error(f"Failed to get top users: {str(e)}")
+            return []
+    
+    def _get_recent_activity(self, limit: int = 20) -> List[Dict[str, Any]]:
+        """Get recent engagement activity"""
+        try:
+            return list(self.engagements_collection.find(
+                {},
+                {
+                    "username": 1,
+                    "avatar_name": 1,
+                    "language": 1,
+                    "timestamp": 1,
+                    "application_source": 1,
+                    "industry": 1
+                }
+            ).sort("timestamp", -1).limit(limit))
+            
+        except Exception as e:
+            logger.error(f"Failed to get recent activity: {str(e)}")
+            return []
+    
+    def _get_growth_trends(self) -> Dict[str, Any]:
+        """Calculate growth trends over time"""
+        try:
+            # Get engagement counts by day for the last 30 days
+            thirty_days_ago = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+            
+            pipeline = [
+                {"$match": {"timestamp": {"$gte": thirty_days_ago}}},
+                {"$group": {
+                    "_id": {"$dateToString": {"format": "%Y-%m-%d", "date": {"$dateFromString": {"dateString": "$timestamp"}}}},
+                    "count": {"$sum": 1}
+                }},
+                {"$sort": {"_id": 1}}
+            ]
+            
+            daily_engagements = list(self.engagements_collection.aggregate(pipeline))
+            
+            # Calculate weekly and monthly growth
+            week_ago = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+            month_ago = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+            
+            engagements_this_week = self.engagements_collection.count_documents({
+                "timestamp": {"$gte": week_ago}
+            })
+            
+            engagements_this_month = self.engagements_collection.count_documents({
+                "timestamp": {"$gte": month_ago}
+            })
+            
+            return {
+                "daily_engagements": daily_engagements,
+                "engagements_this_week": engagements_this_week,
+                "engagements_this_month": engagements_this_month
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to get growth trends: {str(e)}")
+            return {}
+    
+    def _get_industry_breakdown(self) -> Dict[str, int]:
+        """Get engagement breakdown by industry"""
+        try:
+            pipeline = [
+                {"$match": {"industry": {"$ne": ""}}},
+                {"$group": {"_id": "$industry", "count": {"$sum": 1}}},
+                {"$sort": {"count": -1}}
+            ]
+            
+            result = list(self.engagements_collection.aggregate(pipeline))
+            return {item["_id"]: item["count"] for item in result}
+            
+        except Exception as e:
+            logger.error(f"Failed to get industry breakdown: {str(e)}")
+            return {}
+    
+    def _get_performance_metrics(self) -> Dict[str, Any]:
+        """Calculate performance metrics"""
+        try:
+            # Average processing time
+            pipeline = [
+                {"$match": {"processing_time_seconds": {"$gt": 0}}},
+                {"$group": {
+                    "_id": None,
+                    "avg_processing_time": {"$avg": "$processing_time_seconds"},
+                    "avg_video_duration": {"$avg": "$video_duration_seconds"},
+                    "avg_tokens_per_video": {"$avg": "$tokens_used"}
+                }}
+            ]
+            
+            result = list(self.engagements_collection.aggregate(pipeline))
+            
+            if result:
+                return {
+                    "avg_processing_time_seconds": round(result[0]["avg_processing_time"], 2),
+                    "avg_video_duration_seconds": round(result[0]["avg_video_duration"], 2),
+                    "avg_tokens_per_video": round(result[0]["avg_tokens_per_video"], 2)
+                }
+            else:
+                return {
+                    "avg_processing_time_seconds": 0,
+                    "avg_video_duration_seconds": 0,
+                    "avg_tokens_per_video": 0
+                }
+                
+        except Exception as e:
+            logger.error(f"Failed to get performance metrics: {str(e)}")
+            return {}
+    
+    def reset_user_metrics(self, username: str) -> bool:
+        """
+        Reset specific user's metrics (useful for testing)
+        
+        Args:
+            username: Username to reset
+            
+        Returns:
+            bool: Success status
+        """
+        try:
+            # Delete user engagements
+            self.engagements_collection.delete_many({"username": username})
+            
+            # Delete user profile
+            self.users_collection.delete_one({"username": username})
+            
+            # Recalculate global metrics
+            self._recalculate_global_metrics()
+            
+            logger.info(f"Reset metrics for user: {username}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to reset user metrics: {str(e)}")
+            return False
+    
+    def _recalculate_global_metrics(self):
+        """Recalculate global metrics from scratch"""
+        try:
+            # Get all engagements
+            all_engagements = list(self.engagements_collection.find({}))
+            
+            # Initialize counters
+            metrics = GlobalMetrics()
+            
+            # Count metrics
+            metrics.total_videos_generated = len(all_engagements)
+            metrics.total_engagements = len(all_engagements)
+            
+            for engagement in all_engagements:
+                metrics.total_tokens_consumed += engagement.get("tokens_used", 0)
+                
+                avatar = engagement.get("avatar_name", "unknown")
+                metrics.videos_by_avatar[avatar] = metrics.videos_by_avatar.get(avatar, 0) + 1
+                
+                language = engagement.get("language", "unknown")
+                metrics.videos_by_language[language] = metrics.videos_by_language.get(language, 0) + 1
+                
+                industry = engagement.get("industry", "")
+                if industry:
+                    metrics.videos_by_industry[industry] = metrics.videos_by_industry.get(industry, 0) + 1
+                
+                # Count by day
+                timestamp = engagement.get("timestamp", "")
+                if timestamp:
+                    day = timestamp[:10]  # YYYY-MM-DD
+                    metrics.engagement_by_day[day] = metrics.engagement_by_day.get(day, 0) + 1
+            
+            # Count users
+            metrics.total_users = self.users_collection.count_documents({})
+            
+            # Update active user counts
+            self._update_user_counts()
+            
+            # Save updated metrics
+            metrics_data = asdict(metrics)
+            metrics_data["_id"] = "global_metrics"
+            
+            self.metrics_collection.replace_one(
+                {"_id": "global_metrics"},
+                metrics_data,
+                upsert=True
+            )
+            
+            logger.info("Global metrics recalculated successfully")
+            
+        except Exception as e:
+            logger.error(f"Failed to recalculate global metrics: {str(e)}")
+
+# Example usage and helper functions
+def create_engagement_from_streamlit_data(username: str, customer_name: str, 
+                                        avatar_name: str, language: str, 
+                                        text_input: str, video_url: str,
+                                        tokens_used: int = 0, **kwargs) -> UserEngagement:
+    """
+    Create UserEngagement object from Streamlit application data
+    
+    Args:
+        username: Username
+        customer_name: Customer name
+        avatar_name: Avatar used
+        language: Language used
+        text_input: Input text
+        video_url: Generated video URL
+        tokens_used: Number of tokens consumed
+        **kwargs: Additional parameters
+        
+    Returns:
+        UserEngagement object
+    """
+    return UserEngagement(
+        engagement_id=str(uuid.uuid4()),
+        username=username,
+        customer_name=customer_name,
+        company_name=kwargs.get("company_name", ""),
+        industry=kwargs.get("industry", ""),
+        avatar_name=avatar_name,
+        language=language,
+        text_input=text_input,
+        video_url=video_url,
+        tokens_used=tokens_used,
+        words_count=len(text_input.split()) if text_input else 0,
+        session_id=kwargs.get("session_id", ""),
+        application_source="streamlit",
+        processing_time_seconds=kwargs.get("processing_time", 0),
+        video_duration_seconds=kwargs.get("video_duration", 0)
+    )
+
+def create_engagement_from_html_data(username: str, customer_name: str,
+                                   avatar_name: str, language: str,
+                                   text_input: str, industry: str = "",
+                                   **kwargs) -> UserEngagement:
+    """
+    Create UserEngagement object from HTML application data
+    
+    Args:
+        username: Username
+        customer_name: Customer name  
+        avatar_name: Avatar used
+        language: Language used
+        text_input: Input text
+        industry: Industry selected
+        **kwargs: Additional parameters
+        
+    Returns:
+        UserEngagement object
+    """
+    return UserEngagement(
+        engagement_id=str(uuid.uuid4()),
+        username=username,
+        customer_name=customer_name,
+        company_name=kwargs.get("company_name", ""),
+        industry=industry,
+        avatar_name=avatar_name,
+        language=language,
+        text_input=text_input,
+        video_url=kwargs.get("video_url", ""),
+        tokens_used=kwargs.get("tokens_used", len(text_input.split()) * 0.75 if text_input else 0),
+        words_count=len(text_input.split()) if text_input else 0,
+        session_id=kwargs.get("session_id", ""),
+        application_source="html",
+        processing_time_seconds=kwargs.get("processing_time", 0),
+        video_duration_seconds=kwargs.get("video_duration", 0)
+    )
+
+# Configuration helper
+def get_analytics_config():
+    """Get analytics configuration from environment variables"""
+    return {
+        "connection_string": os.getenv("AZCOSMOS_CONNSTR"),
+        "database_name": os.getenv("AZCOSMOS_DATABASE_NAME_Batch", "avatarbatch"),
+        "enable_analytics": os.getenv("ENABLE_ANALYTICS", "true").lower() == "true"
+    }
+
+if __name__ == "__main__":
+    # Example usage
+    config = get_analytics_config()
+    
+    if config["connection_string"]:
+        analytics = GlobalAvatarAnalytics(
+            connection_string=config["connection_string"],
+            database_name=config["database_name"]
+        )
+        
+        # Example: Create and save engagement
+        engagement = create_engagement_from_streamlit_data(
+            username="test_user",
+            customer_name="John Doe",
+            avatar_name="Binaka-AI GBB Leader",
+            language="English",
+            text_input="Hello, this is a test message for the AI avatar system.",
+            video_url="https://example.com/video.mp4",
+            tokens_used=15,
+            industry="technology",
+            processing_time=45.5
+        )
+        
+        success = analytics.save_engagement(engagement)
+        print(f"Engagement saved: {success}")
+        
+        # Get metrics
+        global_metrics = analytics.get_global_metrics()
+        print(f"Total videos generated: {global_metrics.total_videos_generated}")
+        
+        # Get dashboard data
+        dashboard_data = analytics.get_analytics_dashboard_data()
+        print("Dashboard data retrieved successfully")
+        
+    else:
+        print("Please configure AZCOSMOS_CONNSTR environment variable")
